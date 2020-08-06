@@ -1,89 +1,87 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import './App.css';
-import Wallet from 'sol-wallet-adapter';
 import { Connection, SystemProgram, clusterApiUrl } from '@solana/web3.js';
+import Torus from '@toruslabs/torus-embed';
 
-function App() {
-  const [logs, setLogs] = useState([]);
-  function addLog(log) {
-    setLogs((logs) => [...logs, log]);
+let network = clusterApiUrl('devnet');
+class App extends React.Component {
+  state = {
+    logs: [],
+    torus: undefined,
+    network: network,
+    connection: new Connection(network),
+    selectedAddress: '',
+  };
+  async componentDidMount() {
+    const torus = new Torus();
+    await torus.init({ buildEnv: 'development', enableLogging: true });
+    this.setState({ torus: torus });
   }
 
-  const network = clusterApiUrl('devnet');
-  const [providerUrl, setProviderUrl] = useState('https://www.sollet.io');
+  addLog(log) {
+    this.setState({ logs: [...this.state.logs, log] });
+  }
 
-  const connection = useMemo(() => new Connection(network), [network]);
-  const wallet = useMemo(() => new Wallet(providerUrl, network), [
-    providerUrl,
-    network,
-  ]);
-  const [, setConnected] = useState(false);
-  useEffect(() => {
-    wallet.on('connect', () => {
-      setConnected(true);
-      addLog('Connected to wallet ' + wallet.publicKey.toBase58());
-    });
-    wallet.on('disconnect', () => {
-      setConnected(false);
-      addLog('Disconnected from wallet');
-    });
-    return () => {
-      wallet.disconnect();
-    };
-  }, [wallet]);
-
-  async function sendTransaction() {
+  sendTransaction = async () => {
     try {
+      const connection = this.state.connection;
       let transaction = SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: wallet.publicKey,
+        fromPubkey: this.state.torus.solana.selectedAddress,
+        toPubkey: this.state.torus.solana.selectedAddress,
         lamports: 100,
       });
-      addLog('Getting recent blockhash');
+      this.addLog('Getting recent blockhash');
       transaction.recentBlockhash = (
         await connection.getRecentBlockhash()
       ).blockhash;
-      addLog('Sending signature request to wallet');
-      let signed = await wallet.signTransaction(transaction);
-      addLog('Got signature, submitting transaction');
+      this.addLog('Sending signature request to wallet');
+      let signed = await this.state.torus.solana.signTransaction(transaction);
+      this.addLog('Got signature, submitting transaction');
       let signature = await connection.sendRawTransaction(signed.serialize());
-      addLog('Submitted transaction ' + signature + ', awaiting confirmation');
+      this.addLog(
+        'Submitted transaction ' + signature + ', awaiting confirmation',
+      );
       await connection.confirmTransaction(signature, 1);
-      addLog('Transaction ' + signature + ' confirmed');
+      this.addLog('Transaction ' + signature + ' confirmed');
     } catch (e) {
       console.warn(e);
-      addLog('Error: ' + e.message);
+      this.addLog('Error: ' + e.message);
     }
-  }
+  };
 
-  return (
-    <div className="App">
-      <h1>Wallet Adapter Demo</h1>
-      <div>Network: {network}</div>
-      <div>
-        Waller provider:{' '}
-        <input
-          type="text"
-          value={providerUrl}
-          onChange={(e) => setProviderUrl(e.target.value.trim())}
-        />
+  login = async () => {
+    await this.state.torus.login();
+    setTimeout(() => {
+      console.log(this.state.torus.solana, "solana")
+      this.setState({ selectedAddress: this.state.torus.solana.selectedAddress });      
+    }, 100);
+  };
+
+  render() {
+    console.log(this.state.torus);
+    return (
+      <div className="App">
+        <h1>Wallet Adapter Demo</h1>
+        <div>Network: {this.state.network}</div>
+        {this.state.selectedAddress ? (
+          <>
+            <div>
+              Wallet address: {this.state.torus.solana.selectedAddress}.
+            </div>
+            <button onClick={this.sendTransaction}>Send Transaction</button>
+          </>
+        ) : (
+          <button onClick={this.login}>Connect to Wallet</button>
+        )}
+        <hr />
+        <div className="logs">
+          {this.state.logs.map((log, i) => (
+            <div key={i}>{log}</div>
+          ))}
+        </div>
       </div>
-      {wallet.connected ? (
-        <>
-          <div>Wallet address: {wallet.publicKey.toBase58()}.</div>
-          <button onClick={sendTransaction}>Send Transaction</button>
-        </>
-      ) : (
-        <button onClick={() => wallet.connect()}>Connect to Wallet</button>
-      )}
-      <hr />
-      <div className="logs">
-        {logs.map((log, i) => (
-          <div key={i}>{log}</div>
-        ))}
-      </div>
-    </div>
-  );
+    );
+  }
 }
 
 export default App;
